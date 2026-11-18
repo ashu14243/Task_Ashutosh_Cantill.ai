@@ -1,0 +1,126 @@
+# Every key the tool understands. Copy, delete what you don't need. Only `company`, `taxonomy.file`
+# and one source with `fields.id` + `fields.amount` are required. Defaults are shown.
+company: C                          # used in the output file name
+candidate_name: ashutosh            # output: outputs/<candidate_name>__<company>.csv
+reporting_currency: USD
+data_dir: data                      # relative file paths resolve against this (relative to the repo root)
+
+output:
+  dir: outputs                      # or pass --output on the command line
+  diagnostics: true                 # writes <output>.diagnostics.csv (local only, gitignored)
+
+taxonomy:
+  file: company_C/taxonomy_C.csv
+  # format: levels | parent_child   (auto-detected)
+  # level_columns: [category_l1, category_l2, category_l3, category_l4]   (auto-detected)
+  # description_columns: [definition]  (optional free text describing a category; auto-detected)
+  # id_column / parent_column / name_column   (parent_child format only)
+  max_levels: 4
+
+# labels: optional. Without this block the company is classified from the tree alone.
+# labels:
+#   file: company_C/labels.csv
+#   id_column: record_id
+#   id_format: "{id}"
+#   category_columns: [l1, l2, l3]
+#   supplier_key_column: supplier_key
+#   item_key_column: item_key
+#   include_column: include
+#   exclusion_column: exclusion_reason
+#   training_files: {invoices: company_C/invoices.csv}   # the files the labels describe
+
+sources:
+  - name: invoices                  # free text; used by --input name=path and by matching
+    file: company_C/invoices.csv    # .csv (delimiter/encoding sniffed) or .xlsx
+    # read: {delimiter: ";", encoding: cp1252, sheet: 0}
+    # filter: "company_code != 'X'"   (pandas query on raw columns)
+    id_format: "{id}"               # e.g. "ERP:{id}"
+    amount_type: net                # net | gross (gross -> tax removed with tax_rate or tax_amount)
+    default_tax_rate: 0.0           # used when amount_type is gross and the rate is blank
+    fields:                         # canonical field: column | [col, col] | {value: X} | {column: c, pattern: 'regex(group)'}
+      id: line_id
+      amount: amount
+      # tax_rate: vat_rate          # '15', '15%', '0.15'
+      # tax_amount: vat_amount
+      # currency: currency          # or {value: USD}
+      # fx_rate: rate               # inline rate; see fx.inline_rate_direction
+      # date: invoice_date
+      # fx_date: invoice_date       # month used for the fx table (falls back to date)
+      # supplier_name: supplier
+      # supplier_id: vendor_id
+      # description: [line_text, item_name]
+      # item_code: material_number
+      # quantity: qty
+      # po_number: {column: po_ref, pattern: '(\d{6,})'}
+      # po_line: {column: po_item, type: int}
+      # invoice_number: invoice_no
+      # invoice_line: line_no
+      # status: status
+      # gl_account: gl_code
+      # gl_description: gl_name
+      # cost_centre: cost_centre
+      # document_type: doc_type
+      # extra_text: [commodity_code_text, uom]   # anything else that helps classification
+
+# fx:                               # needed only if some lines are in another currency without an inline rate
+#   file: company_C/fx.csv
+#   currency_column: currency
+#   month_column: month             # YYYY-MM (longer dates are cut to 7 chars)
+#   rate_column: units_per_usd
+#   direction: units_per_reporting  # reporting = amount / rate   | reporting_per_unit: amount * rate
+#   inline_rate_direction: units_per_reporting
+
+status:
+  map: {}                           # exact values, case-insensitive: {paid: include, "on hold": NOT_APPROVED}
+  use_default_patterns: true        # paid/approved -> include, cancel/void -> CANCELLED, reject/hold/... -> NOT_APPROVED
+  blank: include
+  unknown: NOT_APPROVED
+
+non_procurement:
+  use_default_rules: true           # intercompany, taxes, financing, royalties, payroll, depreciation, donations
+  rules: []                         # [{field: gl_description, pattern: '(?i)^ic', name: ic_gl}]  field: text|gl|<column>
+                                    # add `exclude: false` to a rule to whitelist lines hit by earlier rules
+  learn_from_labels: true
+  supplier_propagation: {enabled: true, min_lines: 3, min_share: 0.8}
+  zero_amount: include              # include | NON_PROCUREMENT
+
+# matching:                         # two systems for one company: secondary lines matching primary lines are DUPLICATE
+#   primary: erp
+#   secondary: tool
+#   amount_abs_tolerance: 1.0
+#   amount_rel_tolerance: 0.002
+#   date_window_days: 120
+#   text_min_similarity_no_po: 0.6
+#   split_max_lines: 12
+#   split_max_subset: 4
+
+duplicates:
+  within_source: []                 # [{source: invoices, keys: [supplier_key, _inv, _amt2], text_min_similarity: 0.75,
+                                    #   distinguish_by: [_pol, invoice_line]}]
+                                    # _inv = digits of the invoice number, _amt2 = amount to the cent, _pol = PO line
+
+suppliers: {fuzzy_threshold: 92, link_by_supplier_id: true, min_len_for_fuzzy: 5, max_names_per_id: 3}
+items: {fuzzy_threshold: 95, catalogue_threshold: 90, generic_code_min_distinct_texts: 25, generic_code_max_share: 0.05}
+
+dates: {dayfirst: true, min_year: 2000, max_year: 2035, formats: []}   # formats: extra strptime patterns
+amounts: {decimal: auto}            # auto | "." | ","
+
+classification:
+  text_fields: {description: 3.0, gl_description: 1.0, supplier_name: 1.0, extra_text: 1.0}
+  use_labels: true
+  self_training: true
+  zero_shot_temperature: 0.06
+  zero_shot_length_norm: 0.75
+  decode: flat                      # flat | topdown
+  llm:
+    enabled: auto                   # auto = on if an API key env var is set; true | false
+    provider: anthropic             # anthropic | openai (any OpenAI-compatible endpoint, e.g. a local Ollama)
+    model: null                     # default claude-haiku-5-5 / gpt-4o-mini
+    base_url: null                  # e.g. http://localhost:11434/v1 for Ollama
+    api_key_env: null               # default ANTHROPIC_API_KEY / OPENAI_API_KEY (or SPENDTOOL_LLM_API_KEY)
+    batch_size: 40
+    max_unique: 4000                # highest-spend distinct lines sent
+    max_seconds: 900
+    workers: 4
+    weight: 0.6
+    cache_file: .cache/llm_cache.json

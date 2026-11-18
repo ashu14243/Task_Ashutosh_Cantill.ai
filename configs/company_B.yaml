@@ -1,0 +1,62 @@
+# Company B - metal packaging. One AP invoice-line extract from 8 ERPs, 25 currencies, vendor IDs only.
+company: B
+candidate_name: ashutosh
+reporting_currency: USD
+data_dir: data
+
+taxonomy:
+  file: company_B/taxonomy_B.csv
+
+labels:                             # 3,000 quick analyst labels: used as noisy training data
+  file: company_B/seed_labels.csv
+  id_column: line_id
+  category_columns: [category_l1, category_l2, category_l3]
+  include_column: include
+  exclusion_column: exclusion_reason
+  training_files:
+    invoices: company_B/invoice_lines.csv
+
+sources:
+  - name: invoices
+    file: company_B/invoice_lines.csv
+    amount_type: net                # tax is booked on its own lines (excluded as NON_PROCUREMENT)
+    fields:
+      id: line_id
+      amount: line_amount
+      currency: currency
+      fx_rate: currency_rate        # units of line currency per 1 USD; ignored for USD lines
+      date: posting_date
+      fx_date: invoice_date         # brief: missing rate -> fx table for the invoice month
+      supplier_id: vendor_id
+      description: line_description
+      item_code: material_number
+      quantity: quantity
+      po_number: po_number
+      po_line: po_line
+      invoice_number: invoice_number
+      invoice_line: invoice_line
+      gl_account: gl_account
+      gl_description: gl_account_description
+      cost_centre: cost_centre
+      document_type: document_type
+
+fx:
+  file: company_B/fx_rates_usd.csv
+  currency_column: currency
+  month_column: month
+  rate_column: units_per_usd
+  direction: units_per_reporting    # usd = amount / rate
+  inline_rate_direction: units_per_reporting
+
+non_procurement:
+  use_default_rules: true           # intercompany, taxes, financing, royalties, payroll ...
+  learn_from_labels: true           # GL accounts the analyst always excluded
+  rules: []
+
+duplicates:
+  within_source: []                 # seeds count repeated JDE lines as spend; no line de-dup in B
+
+dates: {dayfirst: false, min_year: 2019, max_year: 2026}
+
+classification:
+  text_fields: {description: 3.0, gl_description: 1.0, supplier_name: 0.5, extra_text: 0.5}

@@ -1,0 +1,82 @@
+# Company A - mining operations. Two systems: SAP goods receipts (primary) + AP invoice tool (secondary).
+company: A
+candidate_name: ashutosh
+reporting_currency: ZAR
+data_dir: data                      # relative paths below resolve against <repo>/data (override with --data-dir)
+
+taxonomy:
+  file: company_A/taxonomy_A.csv    # columns category_l1..l3 (auto-detected)
+
+labels:                             # optional; remove this block to run A purely zero-label
+  file: company_A/labels_A.csv
+  id_column: record_id              # already "ERP:<line_id>"
+  category_columns: [category_l1, category_l2, category_l3]
+  supplier_key_column: supplier_key
+  item_key_column: item_key
+  training_files:                   # the files these labels describe (used when a run points at new files)
+    erp: company_A/erp_goods_receipts.csv
+    tool: company_A/invoice_tool_export.csv
+
+sources:
+  - name: erp
+    file: company_A/erp_goods_receipts.csv
+    id_format: "ERP:{id}"
+    amount_type: net                # ERP values are net of VAT
+    fields:
+      id: line_id
+      amount: value_zar
+      currency: {value: ZAR}
+      date: posting_date
+      supplier_name: supplier_name
+      supplier_id: vendor_id
+      description: [material_short_text, service_short_text]
+      item_code: material_number
+      quantity: quantity
+      po_number: po_number
+      po_line: {column: po_item, type: int}
+      cost_centre: cost_centre
+      extra_text: [material_type, spend_type]
+
+  - name: tool
+    file: company_A/invoice_tool_export.csv
+    id_format: "TOOL:{id}"
+    amount_type: gross              # tool amounts include VAT
+    default_tax_rate: 0.15          # brief: blank VAT rate -> 15%
+    fields:
+      id: tool_record_id
+      amount: gross_amount
+      tax_rate: vat_rate            # '15', '15%', '0.15', '0', ''
+      currency: currency
+      date: invoice_date
+      supplier_name: supplier_name_as_captured
+      description: line_text
+      quantity: quantity
+      po_number: {column: po_reference, pattern: '(\d{6,})'}          # 'PO#4510062123', 'PO 451..', '451.../10.0'
+      po_line: {column: po_reference, pattern: '\d{6,}\s*/\s*(\d+(?:\.\d+)?)', type: int}
+      invoice_number: invoice_number
+      status: status
+
+status:
+  map: {paid: include, approved: include, cancelled: CANCELLED, rejected: NOT_APPROVED, "on hold": NOT_APPROVED}
+
+matching:                           # count once: tool lines that are ERP receipts are DUPLICATE
+  primary: erp
+  secondary: tool
+  amount_abs_tolerance: 1.0         # ZAR; VAT back-calculation rounds to the cent
+  amount_rel_tolerance: 0.002
+  date_window_days: 120
+  text_min_similarity_no_po: 0.6
+  split_max_lines: 12
+  split_max_subset: 4
+
+duplicates:
+  within_source:                    # the same tool invoice line exported twice
+    - source: tool
+      keys: [supplier_key, _inv, _amt2]
+      text_min_similarity: 0.75
+      distinguish_by: [_pol]
+
+dates: {dayfirst: true, min_year: 2015, max_year: 2030}
+
+classification:
+  text_fields: {description: 3.0, extra_text: 0.7, supplier_name: 0.5, gl_description: 1.0}

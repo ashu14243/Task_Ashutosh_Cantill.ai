@@ -1,0 +1,31 @@
+
+data/
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.zip
+
+
+!outputs/ashutosh__A.csv
+!outputs/ashutosh__B.csv
+!submission/ashutosh__A2.csv
+!submission/ashutosh__B2.csv
+!submission/ashutosh__C.csv
+
+# local run artefacts (contain source descriptions -> keep local)
+outputs/*.diagnostics.csv
+outputs/*.summary.json
+outputs/eval/
+submission/*.diagnostics.csv
+submission/*.summary.json
+.cache/
+
+# ---- Python -------------------------------------------------------------------
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.DS_Store
