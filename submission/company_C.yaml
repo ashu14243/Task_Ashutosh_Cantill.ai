@@ -1,0 +1,60 @@
+# Company C - oil & gas producer (Bluestem). One AP invoice-line file, amounts already in USD, 4-level tree.
+# Config only: no code was changed for this company.
+company: C
+candidate_name: ashutosh
+reporting_currency: USD
+data_dir: data                      # files below resolve against <repo>/data (or pass --input / --taxonomy)
+
+taxonomy:
+  file: company_C/category_tree_C.csv   # columns level_1..level_4 (auto-detected)
+  max_levels: 4
+
+sources:
+  - name: invoices
+    file: company_C/invoice_lines.csv
+    amount_type: net                # line_amount_usd; sales/other taxes appear as their own lines
+    fields:
+      id: line_id
+      amount: line_amount_usd
+      currency: {value: USD}
+      date: invoice_date            # MM/DD/YYYY
+      supplier_name: supplier_name
+      description: [line_description, product_service_description, invoice_description]
+      item_code: product_service_code   # catch-all codes such as 'PRODUCT' are ignored automatically
+      quantity: quantity
+      invoice_number: invoice_number
+      invoice_line: invoice_line
+      status: status
+      gl_description: gl_account_description
+      document_type: submission_type
+      extra_text: uom
+
+status:
+  map: {approved: include, cancelled: CANCELLED}   # the only two values in the file
+
+non_procurement:
+  use_default_rules: true           # intercompany, sales tax, royalties, financing, payroll, donations ...
+  rules:
+    # The description field joins line, product and invoice descriptions; an invoice header that
+    # mentions tax/royalty must not exclude ordinary lines. Keep a text-based exclusion only when the
+    # line description itself is a tax line (GL-based rules below re-apply afterwards).
+    - name: c_keep_unless_line_is_tax
+      field: description
+      exclude: false
+      pattern: '(?i)^(?!\s*(sales\s+tax|tax\b|taxes\b|ad\s+valorem\s+tax|heavy\s+equipment\s+inventory\s+tax|severance\s+tax))'
+    # GL accounts that are revenue, receivables, royalties, taxes, financing, director pay, gifts, fines
+    - name: c_gl_non_spend
+      field: gl
+      pattern: '(?i)revenue|\breceivable\b|gas rev\.|royalty|severance tax|ad valorem tax|impact fee & other tax|debt issuance|director fees|community giving|donation|employee deductions payable|jib deposits|penalty and fees|public filing fees|o&g app properties'
+    # tax lines inside invoices
+    - name: c_tax_lines
+      field: description
+      pattern: '(?i)^\s*(sales\s+tax|tax\b|taxes\b|ad\s+valorem\s+tax|heavy\s+equipment\s+inventory\s+tax|severance\s+tax)'
+
+duplicates:
+  within_source: []                 # no repeated exports found: invoice + line repeats are cancel/re-issue pairs (status handles them)
+
+dates: {dayfirst: false, min_year: 2015, max_year: 2030}
+
+classification:
+  text_fields: {description: 3.0, gl_description: 2.0, supplier_name: 1.0, extra_text: 0.3}
